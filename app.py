@@ -69,6 +69,25 @@ def _run_image_pipeline(metadata: dict):
     return full, scores
 
 
+@app.route("/", methods=["GET"])
+def index():
+    """Friendly root so opening the host in a browser lists the API instead of 404."""
+    return jsonify({
+        "service": "Provenance Guard",
+        "description": "Human-vs-AI attribution backend with confidence, labels, appeals.",
+        "endpoints": {
+            "POST /submit": "classify text or image metadata",
+            "POST /appeal": "contest a classification",
+            "GET /log?limit=N": "recent audit entries",
+            "GET /health": "liveness",
+            "POST /verify/start, POST /verify/complete": "earn a verified-human credential",
+            "GET /creator/<id>/credential": "credential status",
+            "GET /analytics": "detection-pattern metrics (JSON)",
+            "GET /dashboard": "analytics as HTML",
+        },
+    })
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
