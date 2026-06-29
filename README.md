@@ -13,6 +13,15 @@ baked into the thresholds, the labels, and the appeals path — not bolted on.
 
 ---
 
+## Walkthrough videos
+
+A short end-to-end tour of the system, with a few design decisions explained.
+
+- **Part 1:** https://www.loom.com/share/97f0771884144500b1cd8ba4941de8e9
+- **Part 2:** https://www.loom.com/share/fb1edcb220394e1db53b4a182c8c84ff
+
+---
+
 ## Setup & run
 
 ```bash
@@ -90,9 +99,9 @@ different families, so a text that fools one can still be caught by another, and
 | **2. Stylometric burstiness** (pure Python) | Statistical / structural | Sentence-length variation (coefficient of variation) + type-token ratio (vocabulary diversity) | Humans are *bursty* (long sentences beside short) and lexically varied; AI trends uniform | Needs ~40+ words; flags terse / repetitive **human** poetry as AI (mitigated by short-text neutralization) |
 | **3. Lexical fingerprint** (pure Python) | Surface / lexical | Density of AI "tell" phrases ("it is important to note", "furthermore"…), sentence-opener diversity, punctuation variety | Instruction-tuned models over-use connective boilerplate and formulaic openers | A human deliberately writing formally trips it; trivially evaded by paraphrase |
 
-> **Signal 3 is the stretch feature — ensemble detection.** The required minimum
-> is two signals; Provenance Guard runs **three** and documents the weighting
-> below. See [Stretch feature](#stretch-feature-ensemble-3-signal-detection).
+> **The third signal is a stretch feature — ensemble detection.** The required
+> minimum is two signals; Provenance Guard runs **three** and documents the
+> weighting below. See [Stretch features → Ensemble](#1-ensemble-3-signal-detection).
 
 **Why this combination:** holistic-semantic (1), statistical-structural (2), and
 lexical-surface (3) are independent *families*. No single one is reliable alone,
@@ -455,7 +464,7 @@ simple HTML card view for the walkthrough.
 ## AI usage
 
 1. **Stylometry signal + first scoring draft.** I gave the assistant
-   `planning.md §1–§2` and asked it to implement the stylometric signal and the
+   `planning.md` and asked it to implement the stylometric signal and the
    confidence combiner. It produced a type-token-ratio mapping that assumed AI
    text sits in a mid 0.4–0.6 TTR band and treated *high* TTR as strong evidence
    of "human." On short, dense text TTR is naturally high regardless of author, so
