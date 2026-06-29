@@ -65,10 +65,15 @@ version of both flows is in [`planning.md` → Architecture](planning.md#archite
 
 | Method & path | Body | Returns |
 |---|---|---|
-| `POST /submit` | `{text, creator_id}` | `content_id`, `attribution`, `confidence`, `label{tier,band,text}`, `signals{…}`, `p_ai`, `status` |
+| `POST /submit` | `{text, creator_id, content_type?}` or `{metadata, creator_id, content_type:"image_metadata"}` | `content_id`, `content_type`, `attribution`, `confidence`, `label{tier,band,text}`, `signals{…}`, `p_ai`, `status`, `creator{…}` |
 | `POST /appeal` | `{content_id, creator_reasoning}` | `{content_id, status:"under_review", message}` (404 if id unknown) |
 | `GET /log?limit=N` | — | `{entries:[…]}` newest-first audit entries |
 | `GET /health` | — | `{status:"ok"}` |
+| `POST /verify/start` *(stretch)* | `{creator_id}` | `{challenge_id, instructions, phrase}` |
+| `POST /verify/complete` *(stretch)* | `{challenge_id, typed_phrase}` | verified-human credential (404/409/422 on bad/used/mismatched) |
+| `GET /creator/<id>/credential` *(stretch)* | — | `{creator_id, verified_human, …badge}` |
+| `GET /analytics` *(stretch)* | — | detection-pattern metrics (JSON) |
+| `GET /dashboard` *(stretch)* | — | analytics rendered as HTML |
 
 ---
 
@@ -255,67 +260,63 @@ Body of a 429 response: `429 Too Many Requests — 10 per 1 minute`.
 
 Every classification and every appeal is written as a structured, immutable event
 to the SQLite `audit_log` table. Each entry records timestamp, content id,
-attribution, combined confidence, **all three individual signal scores**, the
-status, and (for appeals) the creator's reasoning beside the original decision.
-Surface it with `GET /log`.
+content type, attribution, combined confidence, **every individual signal score**
+(as a `signals` object — works for any modality), the status, and (for appeals)
+the creator's reasoning beside a snapshot of the original decision. Surface it with
+`GET /log`.
 
-Sample (`GET /log?limit=10`) — **5 entries: 1 appeal + 4 classifications**:
+Sample (`GET /log`) — actual output, **7 entries: 1 appeal + 6 classifications
+spanning text and image_metadata**. Three representative entries shown:
 
 ```json
 {
   "entries": [
     {
       "event_type": "appeal",
-      "content_id": "9f0fdb93-a5d0-44db-a276-f2e409335392",
-      "timestamp": "2026-06-29T02:23:18.292746Z",
+      "content_id": "b86da931-3256-4fd2-a3a3-5267abf665e8",
+      "timestamp": "2026-06-29T02:39:35.207338Z",
       "status": "under_review",
-      "appeal_reasoning": "I wrote this myself from personal experience. I am a non-native English speaker and my writing style may appear more formal than typical.",
+      "appeal_reasoning": "I am a Verified Human Creator and wrote this myself; my corporate writing style is just formal.",
       "original_decision": {
-        "attribution": "likely_ai", "confidence": 0.5099, "p_ai": 0.7289,
-        "llm_score": 0.8, "style_score": 0.5444, "lexical_score": 0.7
+        "content_type": "text", "attribution": "likely_ai",
+        "confidence": 0.538, "p_ai": 0.805,
+        "signals": { "llm": 0.9, "stylometry": 0.625, "lexical": 0.7 }
       }
     },
     {
       "event_type": "classified",
-      "content_id": "51aa48cd-1427-482a-905f-57dd095eeb2a",
-      "creator_id": "test-BORDERLINE-edited-AI",
-      "timestamp": "2026-06-29T02:22:36.373686Z",
-      "attribution": "uncertain", "confidence": 0.2809, "p_ai": 0.3532,
-      "llm_score": 0.4, "style_score": 0.5158, "lexical_score": 0.05,
-      "status": "classified", "used_signals": ["llm","stylometry","lexical"]
-    },
-    {
-      "event_type": "classified",
-      "content_id": "2bf0c51a-38f6-469c-a16d-31825073a066",
-      "creator_id": "test-BORDERLINE-formal-human",
-      "timestamp": "2026-06-29T02:22:21.000000Z",
-      "attribution": "uncertain", "confidence": 0.1351, "p_ai": 0.6778,
-      "llm_score": 0.8, "style_score": 0.7888, "lexical_score": 0.2,
-      "status": "classified", "used_signals": ["llm","stylometry","lexical"]
-    },
-    {
-      "event_type": "classified",
-      "content_id": "bd7a8c6f-d081-471f-805f-c2563df7448f",
-      "creator_id": "test-CLEARLY-HUMAN",
-      "attribution": "likely_human", "confidence": 0.8779, "p_ai": 0.1031,
-      "llm_score": 0.1, "style_score": 0.1157, "lexical_score": 0.1,
-      "status": "classified", "used_signals": ["llm","stylometry","lexical"]
+      "content_id": "5f781528-1483-4ac9-bde8-85475e779b09",
+      "creator_id": "carol", "content_type": "image_metadata",
+      "timestamp": "2026-06-29T02:39:34.665686Z",
+      "attribution": "likely_human", "confidence": 0.5045, "p_ai": 0.2756,
+      "signals": { "generator": 0.35, "camera": 0.1375 },
+      "status": "classified", "used_signals": ["generator","camera"]
     },
     {
       "event_type": "classified",
       "content_id": "9f0fdb93-a5d0-44db-a276-f2e409335392",
-      "creator_id": "test-CLEARLY-AI",
+      "creator_id": "frank", "content_type": "text",
       "attribution": "likely_ai", "confidence": 0.5099, "p_ai": 0.7289,
-      "llm_score": 0.8, "style_score": 0.5444, "lexical_score": 0.7,
+      "signals": { "llm": 0.8, "stylometry": 0.5444, "lexical": 0.7 },
       "status": "classified", "used_signals": ["llm","stylometry","lexical"]
     }
   ]
 }
 ```
 
+> Note the **appeal entry**: it's a *Verified Human Creator* whose formal text was
+> flagged `likely_ai` — precisely the false-positive case the credential + appeal
+> path exist to catch. The original decision (all three signal scores) is snapshotted
+> right beside the creator's reasoning for a reviewer.
+
 ---
 
-## Stretch feature: ensemble 3-signal detection
+## Stretch features
+
+Four stretch features were built on top of the required seven. Each was added
+without breaking the core contract.
+
+### 1. Ensemble 3-signal detection
 
 The required minimum is two signals; Provenance Guard runs **three** with a
 documented **weighted-average** ensemble (`scoring.py`):
@@ -332,6 +333,78 @@ the lexical signal's disagreement that (correctly) pulled the result back to
 `uncertain` instead of a false AI accusation. The weighting auto-renormalizes if
 the LLM signal is unavailable, so the ensemble degrades to two signals rather than
 breaking.
+
+### 2. Multi-modal support (image metadata)
+
+`POST /submit` accepts `content_type: "image_metadata"` with a `metadata` object,
+routing to a **separate two-signal pipeline** (`image_signal.py`) that reuses the
+same scoring, labels, audit, and appeal machinery:
+
+- **generator-signature** — explicit AI-tool markers (software/generator/prompt,
+  C2PA `ai_generated`). Near-conclusive when present.
+- **camera-plausibility** — presence of real-capture EXIF (make/model, ISO,
+  exposure, lens, GPS). Rich EXIF → human; absence → weak AI lean.
+
+To make the pipeline modality-agnostic, `scoring.combine(signals, weights)` takes
+any signal dict + weight table, and the storage schema stores signal scores as
+JSON plus a `content_type` column. **Verified behavior:**
+
+| Submission | p_ai | signals (generator / camera) | Label |
+|---|---|---|---|
+| AI image (`software: "Midjourney v6"`, has prompt) | 0.89 | 0.97 / 0.75 | `likely_ai` |
+| Real photo (full Canon EXIF) | 0.28 | 0.35 / 0.14 | `likely_human` |
+
+*Blind spot:* metadata is strippable/forgeable, so bare metadata with no camera
+data and no AI signature lands `uncertain` by design — absence of evidence is not
+evidence. Weights: `generator 0.65 / camera 0.35`.
+
+### 3. Provenance certificate (verified-human credential)
+
+A creator earns a **"✓ Verified Human Creator"** badge through a two-step
+challenge (`credentials.py`):
+
+```bash
+# 1. start — server returns a phrase to type back
+curl -s -X POST http://127.0.0.1:5000/verify/start -d '{"creator_id":"dave"}' -H "Content-Type: application/json"
+# 2. complete — type it back verbatim; an HMAC-signed credential is issued
+curl -s -X POST http://127.0.0.1:5000/verify/complete -H "Content-Type: application/json" \
+  -d '{"challenge_id":"<id>","typed_phrase":"I am a human creator and this is my original work"}'
+```
+
+The badge is then attached to that creator's `/submit` responses
+(`"creator": {"verified_human": true, "label": "✓ Verified Human Creator", …}`)
+and queryable at `GET /creator/<id>/credential`. Wrong phrase → `422`, reused
+challenge → `409`, unknown → `404`.
+
+**Design boundary (deliberate):** the credential is about **creator identity, not
+a claim about any single piece of content.** Verified creators' submissions are
+still classified normally — the badge never overrides detection. In testing, the
+verified creator `dave` submitted formal text that was (correctly, by the signals)
+flagged `likely_ai`; the badge stayed attached and the case became a textbook
+appeal — which is exactly the honest behavior. The typed-phrase step is a
+lightweight presence check, not identity proofing (production would use captcha /
+OAuth / ID).
+
+### 4. Analytics dashboard
+
+`GET /analytics` (JSON) and `GET /dashboard` (HTML) aggregate the audit trail.
+Actual `/analytics` output from the demo dataset:
+
+```json
+{
+  "total_submissions": 6,
+  "by_attribution": { "likely_ai": 3, "likely_human": 2, "uncertain": 1 },
+  "by_content_type": { "text": 4, "image_metadata": 2 },
+  "appeals": 1, "appeal_rate": 0.1667,
+  "average_confidence": 0.4904, "uncertain_rate": 0.1667
+}
+```
+
+Metrics: **detection patterns** (breakdown by attribution tier *and* content
+type), **appeal rate**, **average confidence**, plus **uncertain-rate** as a
+health signal — a high uncertain rate means the system is honestly declining to
+guess rather than risking false positives. `/dashboard` renders the same data as a
+simple HTML card view for the walkthrough.
 
 ---
 
@@ -406,15 +479,18 @@ breaking.
 ## Project layout
 
 ```
-app.py                 Flask API: /submit, /appeal, /log, /health + rate limiting
-config.py              weights, thresholds, rate limits — single source of truth
-db.py                  SQLite: contents (mutable status) + audit_log (append-only)
+app.py                 Flask API: submit/appeal/log + verify/analytics/dashboard + rate limiting
+config.py              weights (per modality), thresholds, rate limits, verify secret/phrase
+db.py                  SQLite: contents, audit_log, challenges, credentials
 llm_signal.py          Signal 1 — Groq holistic read (degrades gracefully)
 stylometry_signal.py   Signal 2 — burstiness + type-token ratio (pure Python)
-lexical_signal.py      Signal 3 — AI tell-phrases / openers / punctuation (stretch)
-scoring.py             p_ai + confidence + asymmetric attribution
+lexical_signal.py      Signal 3 — AI tell-phrases / openers / punctuation
+image_signal.py        Stretch: image-metadata modality (generator + camera signals)
+scoring.py             modality-agnostic combine() → p_ai + confidence + attribution
 labels.py              the three transparency-label variants
 audit.py               structured event logging for classifications & appeals
+credentials.py         Stretch: verified-human credential (challenge + HMAC)
+analytics.py           Stretch: dashboard metrics + HTML render
 test_calibration.py    submits the 4 calibration inputs and prints scores
 planning.md            pre-implementation spec + Mermaid architecture diagram
 ```

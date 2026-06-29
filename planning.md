@@ -256,3 +256,53 @@ architecture diagram, then verify every output against this document before use.
   *Verify:* all three label variants are reachable from real inputs and match §3
   verbatim; an appeal flips status to `under_review` and logs reasoning beside
   the original decision; 12 rapid submits show `200×10` then `429`.
+
+---
+
+## Stretch features (planned after the required 7 passed)
+
+All four required-feature checkpoints were green before starting these. Each one
+was added without breaking the core contract; the README documents the shipped
+behavior and evidence.
+
+### S1 — Ensemble detection *(done as part of the core build)*
+Three signals instead of the required two, combined by a documented weighted
+average (`p_ai = 0.6·LLM + 0.2·stylometry + 0.2·lexical`), auto-renormalizing if
+the LLM signal is unavailable. The two heuristics also feed the `agreement` term,
+so the third signal materially changes outcomes (it was lexical disagreement that
+correctly rescued the formal-human case from a false positive).
+
+### S2 — Multi-modal support (image metadata)
+A second `content_type` (`image_metadata`) routes to its own two-signal pipeline:
+1. **generator-signature** — explicit AI-tool markers (software/generator/prompt
+   fields, C2PA `ai_generated` assertion). Near-conclusive when present.
+2. **camera-plausibility** — presence of real-capture EXIF (make/model, ISO,
+   exposure, lens, GPS). Rich EXIF → human; absence → weak AI lean.
+
+To support this without special-casing, `scoring.combine(signals, weights)` was
+generalized to take any signal dict + weight table, and the `contents`/audit
+schema now stores signal scores as JSON (`signals_json`) plus a `content_type`
+column. *Blind spot:* metadata is strippable/forgeable, so bare metadata with no
+camera data lands `uncertain` by design. *Weights:* `generator 0.65 / camera 0.35`.
+
+### S3 — Provenance certificate (verified-human credential)
+A creator earns a **"✓ Verified Human Creator"** badge via a two-step challenge:
+`POST /verify/start` issues a phrase → the creator types it back to
+`POST /verify/complete` → an HMAC-signed credential is stored. The badge is then
+attached to that creator's `/submit` responses and queryable at
+`GET /creator/<id>/credential`.
+
+*Design boundary (important):* the credential is about **creator identity, not a
+claim about any single piece of content.** Verified creators' submissions are
+still classified normally — the badge never overrides detection. A verified human
+whose work is flagged AI is exactly a strong appeal candidate (demonstrated in the
+README). This keeps the two concerns (who you are vs. what this text is) honest
+and separate. The typed-phrase step is a lightweight presence check, not identity
+proofing — a production system would use captcha / OAuth / ID.
+
+### S4 — Analytics dashboard
+`GET /analytics` (JSON) and `GET /dashboard` (HTML) aggregate the audit trail into
+platform metrics: detection-pattern breakdown by attribution tier **and** content
+type, appeal rate, average confidence, and uncertain-rate (a health signal — a
+high uncertain rate means the system is honestly declining to guess). Reads
+straight from `contents` + `audit_log`; no new write path.

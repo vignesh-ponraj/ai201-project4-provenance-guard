@@ -5,6 +5,8 @@ Key idea (planning.md §2): confidence is NOT p_ai. It measures how much to trus
 the direction p_ai points — driven by how *decisive* the score is and how much
 the signals *agree*. Disagreeing signals collapse confidence toward "uncertain".
 """
+from __future__ import annotations
+
 from statistics import pstdev
 
 from config import (
@@ -12,24 +14,27 @@ from config import (
     AI_THRESHOLD,
     HUMAN_THRESHOLD,
     MIN_CONFIDENCE,
-    SIGNAL_WEIGHTS,
+    TEXT_SIGNAL_WEIGHTS,
 )
 
 
-def combine(signals: dict) -> dict:
-    """signals: {"llm": x|None, "stylometry": y, "lexical": z} of ai_likelihoods.
+def combine(signals: dict, weights: dict | None = None) -> dict:
+    """signals: {signal_name: ai_likelihood (0-1) | None}.
+    weights:  {signal_name: weight}; defaults to the text-modality weights.
 
-    Returns {p_ai, confidence, attribution, used_signals}.
-    A None signal (e.g. LLM unavailable) is dropped and its weight redistributed.
+    Returns {p_ai, confidence, attribution, used_signals}. A None signal (e.g.
+    LLM unavailable) is dropped and its weight redistributed across the rest, so
+    the same scorer serves every modality.
     """
+    weights = weights or TEXT_SIGNAL_WEIGHTS
     # Keep only available signals; redistribute weights so they still sum to 1.
     available = {k: v for k, v in signals.items() if v is not None}
     if not available:
         # Should never happen (heuristics never return None), but be safe.
         return {"p_ai": 0.5, "confidence": 0.0, "attribution": "uncertain", "used_signals": []}
 
-    total_w = sum(SIGNAL_WEIGHTS[k] for k in available)
-    p_ai = sum(SIGNAL_WEIGHTS[k] / total_w * v for k, v in available.items())
+    total_w = sum(weights[k] for k in available)
+    p_ai = sum(weights[k] / total_w * v for k, v in available.items())
     p_ai = round(p_ai, 4)
 
     # --- confidence (planning.md §2) -----------------------------------------

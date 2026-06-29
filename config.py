@@ -15,16 +15,33 @@ LLM_MODEL = "llama-3.3-70b-versatile"
 # --- Storage -----------------------------------------------------------------
 DB_PATH = os.getenv("PROVENANCE_DB", "provenance.db")
 
-# --- Signal weights (must sum to 1.0; see planning.md §1) --------------------
-# LLM is by far the most reliable single signal (cleanly separates the
+# --- Signal weights per modality (each must sum to 1.0; planning.md §1) ------
+# LLM is by far the most reliable single TEXT signal (cleanly separates the
 # calibration set ~0.8 vs ~0.1), so it carries the most weight. The two
 # heuristics back it up and, crucially, let us detect disagreement — which is
 # what drives confidence down toward "uncertain".
-SIGNAL_WEIGHTS = {
+TEXT_SIGNAL_WEIGHTS = {
     "llm": 0.6,
     "stylometry": 0.2,
     "lexical": 0.2,
 }
+
+# Image-metadata modality (stretch: multi-modal). An explicit generator
+# signature is near-conclusive, so it dominates; camera-plausibility is the
+# corroborating structural signal.
+IMAGE_SIGNAL_WEIGHTS = {
+    "generator": 0.65,
+    "camera": 0.35,
+}
+
+# Which weight table each content_type uses.
+MODALITY_WEIGHTS = {
+    "text": TEXT_SIGNAL_WEIGHTS,
+    "image_metadata": IMAGE_SIGNAL_WEIGHTS,
+}
+
+# Backwards-compatible alias (text was the only modality originally).
+SIGNAL_WEIGHTS = TEXT_SIGNAL_WEIGHTS
 
 # --- Confidence + label thresholds (planning.md §2) --------------------------
 # Asymmetric on purpose: a false positive (calling a human's work AI) is the
@@ -46,3 +63,11 @@ AGREEMENT_SPREAD_CAP = 0.35
 
 # --- Rate limiting (planning.md §4 / README) ---------------------------------
 SUBMIT_RATE_LIMIT = "10 per minute;100 per day"
+
+# --- Provenance certificate (stretch: verified-human credential) -------------
+# Secret used to sign credential tokens (HMAC). In production this would be a
+# managed secret; here it falls back to a dev default so the demo runs.
+VERIFY_SECRET = os.getenv("VERIFY_SECRET", "provenance-guard-dev-secret")
+# The phrase a creator must type back verbatim to complete verification — a
+# lightweight presence/attention check that deters trivial scripted sign-ups.
+VERIFY_PHRASE = "I am a human creator and this is my original work"
